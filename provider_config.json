@@ -1,0 +1,88 @@
+{
+  "providers": {
+    "openai": {
+      "provider_name": "openai",
+      "display_name": "OpenAI",
+      "api_endpoint": "https://api.openai.com/v1",
+      "supports_streaming": true,
+      "default_timeout_seconds": 60,
+      "metadata": {}
+    },
+    "anthropic": {
+      "provider_name": "anthropic",
+      "display_name": "Anthropic",
+      "api_endpoint": "https://api.anthropic.com/v1",
+      "supports_streaming": true,
+      "default_timeout_seconds": 60,
+      "metadata": {}
+    },
+    "google": {
+      "provider_name": "google",
+      "display_name": "Google AI",
+      "api_endpoint": "https://generativelanguage.googleapis.com/v1",
+      "supports_streaming": true,
+      "default_timeout_seconds": 60,
+      "metadata": {}
+    },
+    "internal": {
+      "provider_name": "internal",
+      "display_name": "Internal LLM",
+      "api_endpoint": "http://localhost:8000/internal-llm",
+      "supports_streaming": false,
+      "default_timeout_seconds": 60,
+      "metadata": {}
+    }
+  },
+
+  "model_configs": {
+    "openai:gpt-4": {
+      "provider": "openai",
+      "model": "gpt-4",
+      "max_tokens": 4096
+    },
+    "anthropic:claude-3-opus": {
+      "provider": "anthropic",
+      "model": "claude-3-opus",
+      "max_tokens": 4096
+    },
+    "google:gemini-1.5-pro": {
+      "provider": "google",
+      "model": "gemini-1.5-pro",
+      "max_tokens": 4096
+    },
+    "internal:default": {
+      "provider": "internal",
+      "model": "internal-llm-small",
+      "max_tokens": 2048
+    }
+  },
+
+  "per_agent_routing": {
+    "test-agent-001": {
+      "default_provider": "openai",
+      "default_model": "gpt-4",
+      "fallback_provider": "anthropic",
+      "fallback_model": "claude-3-opus"
+    }
+  },
+
+  "per_purpose_routing": {
+    "testing": {
+      "provider": "openai",
+      "model": "gpt-4"
+    },
+    "sensitive_data": {
+      "provider": "internal",
+      "model": "internal-llm-small"
+    }
+  },
+
+  "model_allowlist": [
+    "openai:gpt-4",
+    "anthropic:claude-3-opus",
+    "google:gemini-1.5-pro",
+    "internal:default"
+  ],
+
+  "model_denylist": []
+}

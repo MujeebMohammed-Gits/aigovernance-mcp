@@ -1,0 +1,179 @@
+name: CI/CD Pipeline
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  DEV_IMAGE: ${{ secrets.REGISTRY }}/aigovernance-dev:${{ github.sha }}
+  STAGING_IMAGE: ${{ secrets.REGISTRY }}/aigovernance-staging:${{ github.sha }}
+  PROD_IMAGE: ${{ secrets.REGISTRY }}/aigovernance-prod:${{ github.sha }}
+  PYTHON_VERSION: "3.11"
+  PROJECT_ROOT: /
+  REQUIREMENTS_FILE: requirements.txt
+
+jobs:
+  lint-test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: /
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r src/requirements.txt
+      - name: Lint with flake8
+        run: |
+          flake8 . --count --select=E9,F6,F7,W501 --show-source --statistics
+      - name: Type check with mypy
+        run: |
+          mypy .
+      - name: Run unit tests
+        run: |
+          python -m pytest tests/ -v --tb=short
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      - name: Upload test artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ runner.os }}
+          path: tests/
+          retention-days: 30
+  build:
+    name: Build Docker Image
+    needs: lint-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      dev_image: ${{ steps.set-vars.outputs.dev_image }}
+      staging_image: ${{ steps.set-vars.outputs.staging_image }}
+      prod_image: ${{ steps.set-vars.outputs.prod_image }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Log in to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USER }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+      - name: Build and push dev image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{ env.DEV_IMAGE }}
+          cache-from: type=registry,ref=${{ env.DEV_IMAGE }}
+          cache-to: type=registry,ref=${{ env.DEV_IMAGE }}
+      - name: Set build vars
+        id: set-vars
+        run: |
+          echo "dev_image=${{ env.DEV_IMAGE }}" >> $GITHUB_OUTPUT
+          echo "staging_image=${{ env.STAGING_IMAGE }}" >> $GITHUB_OUTPUT
+          echo "prod_image=${{ env.PROD_IMAGE }}" >> $GITHUB_OUTPUT
+  deploy-dev:
+    name: Deploy to Development
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: development
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Install deployment tools
+        run: |
+          pip install docker-compose
+      - name: Deploy to dev environment
+        run: |
+          docker-compose -f docker-compose.dev.yml up -d
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      - name: Verify dev deployment
+        run: |
+          docker ps --filter "name=aigovernance-dev"
+  deploy-staging:
+    name: Deploy to Staging
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: staging
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Install deployment tools
+        run: |
+          pip install docker-compose
+      - name: Deploy to staging environment
+        run: |
+          docker-compose -f docker-compose.staging.yml up -d
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      - name: Verify staging deployment
+        run: |
+          docker ps --filter "name=aigovernance-staging"
+  deploy-prod:
+    name: Deploy to Production
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment:
+      name: production
+      url: https://aigovernance.example.com
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Install deployment tools
+        run: |
+          pip install docker-compose
+      - name: Deploy to production environment
+        run: |
+          docker-compose -f docker-compose.prod.yml up -d
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      - name: Verify production deployment
+        run: |
+          docker ps --filter "name=aigovernance-prod"
+      - name: Run post-deployment health checks
+        run: |
+          curl -f https://aigovernance.example.com/health || exit 1
+      - name: Notify deployment success
+        uses: slackapi/slack-github-action@v1.25.0
+        with:
+          channel-id: ${{ secrets.SLACK_CHANNEL }}
+          slack-message: "✅ Production deployment successful! SHA: ${{ github.sha }}"
+  promote-environments:
+    name: Promote Environments
+    needs: [deploy-dev, deploy-staging, deploy-prod]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Check promotion status
+        run: |
+          echo "Environments promoted successfully:"
+          echo "- Development: ✅ Deployed"
+          echo "- Staging: ✅ Deployed"
+          echo "- Production: ✅ Deployed"
+          echo "Promotion complete for SHA: ${{ github.sha }}"

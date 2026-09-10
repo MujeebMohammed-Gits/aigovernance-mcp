@@ -1,0 +1,22 @@
+# Python
+  __pycache__/
+  *.pyc
+  *.pyo
+  *.pyd
+  *.egg-info/
+  .env
+  *.env.local
+  *.env.*.local
+  db.sqlite3
+  .pytest_cache/
+  htmlcov/
+  .mypy_cache/
+  .DS_Store
+
+  # Windows specific
+  Thumbs.db
+  ehthumbs.db
+  Desktop.ini
+
+  # Docker
+  docker-compose.override.yml
