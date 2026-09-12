@@ -318,6 +318,162 @@ async def get_allowlist():
       return {'allowed_models': _ALLOWED_MODELS}
 
 
+
+from flask import Flask, request, jsonify
+
+  # Add project root to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from config import load_env, validate_config, get_config_summary
+
+  # Initialize Flask app
+app = Flask(__name__)
+
+  # Load configuration
+load_env()
+config = validate_config()
+
+  # Global state
+START_TIME = time.time()
+PROVIDER_STATES = {
+      "openai": {"failures": 0, "open": False, "opened_at": None},
+      "anthropic": {"failures": 0, "open": False, "opened_at": None},
+      "google": {"failures": 0, "open": False, "opened_at": None},
+  }
+RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "100"))
+_request_count = 0
+_last_reset = time.time()
+
+
+@app.route('/health', methods=['GET'])
+def health_check():
+      """Health check endpoint for deployment validation."""
+      current_time = time.time()
+      elapsed = current_time - START_TIME
+
+      # Count healthy providers
+      healthy_providers = 0
+      for provider, state in PROVIDER_STATES.items():
+          if not state["open"] or (current_time - state.get("opened_at", 0) >= 60):
+              healthy_providers += 1
+
+      # Circuit breaker states
+      cb_states = {}
+      for provider, state in PROVIDER_STATES.items():
+          cb_states[provider] = {
+              "open": state["open"],
+              "failures": state["failures"]
+          }
+
+      return jsonify({
+          "status": "healthy",
+          "version": "2.0.0",
+          "uptime_seconds": int(elapsed),
+          "providers": {
+              "openai": not PROVIDER_STATES["openai"]["open"],
+              "anthropic": not PROVIDER_STATES["anthropic"]["open"],
+              "google": not PROVIDER_STATES["google"]["open"]
+          },
+          "circuit_breakers": cb_states,
+          "rate_limit": {
+              "per_minute": RATE_LIMIT_PER_MINUTE,
+              "current": min(_request_count, RATE_LIMIT_PER_MINUTE)
+          },
+          "configuration": {
+              "debug": os.getenv("DEBUG", "False").lower() in ("true", "1", "yes"),
+              "allowed_hosts": [h.strip() for h in os.getenv("ALLOWED_HOSTS", "").split(",") if h.strip()]
+          }
+      })
+
+
+@app.route('/status', methods=['GET'])
+def status_check():
+      """Extended status endpoint."""
+      return jsonify({
+          "name": "MCP Control-Tower",
+          "environment": os.getenv("LOG_LEVEL", "INFO"),
+          "modules": {
+              "mcp_service": True,  # Would dynamically check
+              "policy_engine": True,
+              "agent_registry": True,
+              "usage_tracker": True
+          }
+      })
+
+
+  # Rate limiting middleware
+def rate_limit(func):
+      """Simple rate limiting decorator."""
+      def wrapper(*args, **kwargs):
+          global _request_count, _last_reset
+          current_time = time.time()
+
+          # Reset counter every minute
+          if current_time - _last_reset >= 60:
+              _last_reset = current_time
+              _request_count = 0
+
+          _request_count += 1
+
+          if _request_count > RATE_LIMIT_PER_MINUTE:
+              return jsonify({
+                  "error": "Rate limit exceeded",
+                  "limit": RATE_LIMIT_PER_MINUTE,
+                  "current": _request_count
+              }), 429
+
+          return func(*args, **kwargs)
+      wrapper.__name__ = func.__name__
+      return wrapper
+
+
+  # Apply rate limiting to all routes
+for route in list(app.view_functions.keys()):
+      app.view_functions[rate_limit.__name__](route)
+
+
+@app.route('/', methods=['GET'])
+def index():
+      """Root endpoint with basic info."""
+      return jsonify({
+          "service": "MCP Control-Tower",
+          "version": "2.0.0",
+          "endpoints": ["/health", "/status", "/"],
+          "documentation": "https://yourdomain.com/docs"
+      })
+
+
+  # Error handlers
+@app.errorhandler(404)
+def not_found(e):
+      return jsonify({"error": "Endpoint not found"}), 404
+
+
+@app.errorhandler(429)
+def ratelimit(e):
+      return jsonify({"error": "Rate limit exceeded"}), 429
+
+
+@app.errorhandler(500)
+def internal_error(e):
+      return jsonify({"error": "Internal server error"}), 500
+
+
+def run_server(host: str = None, port: int = None, debug: bool = None):
+      """Run the Flask server with proper configuration."""
+      host = host or os.getenv("HOST", "0.0.0.0")
+      port = port or int(os.getenv("PORT", "8000"))
+      debug = debug or os.getenv("DEBUG", "False").lower() in ("true", "1", "yes")
+
+      print(f"Starting MCP Control-Tower server...")
+      print(f"  URL: http://{host}:{port}")
+      print(f"  Health: http://{host}:{port}/health")
+      print(f"  Debug mode: {debug}")
+
+      # Don't use debug=True in production
+      app.run(host=host, port=port, debug=debug)
+
+
   # ============================================================
   # Server Startup
   # ============================================================

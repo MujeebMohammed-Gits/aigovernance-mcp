@@ -6,10 +6,9 @@ pytest>=7.0.0
 flake8>=4.0.0
 mypy>=1.0.0
 docker>=6.0.0
-docker-compose>=2.0.0
 slack-sdk>=3.20.0
 requests>=2.28.0
-json-logging>=2.0.0
+json-logging>=1.0.0
 python-jose[cryptography]==3.3.0
 pyyaml>=6.0
 python-dateutil>=2.8.0
@@ -21,7 +20,6 @@ fastapi>=0.100.0
 uvicorn>=0.23.0
 starlette>=0.27.0
 prometheus-client>=0.17.0
-logging-handlers>=0.6.5
 cachetools>4.0.0
 pyjwt[crypto]>=2.4.0
 asyncpg>=0.28.0
@@ -42,7 +40,6 @@ charset-normalizer>=3.0
 idna>=3.0
 urllib3>=1.26.0
 certifi>=2023.0
-charset-normalizer-PyPI>=3.0
 requests[security]>=2.31.0
 python-multipart>=0.0.5
 aiofiles>=23.0.0
@@ -56,4 +53,3 @@ opentelemetry-instrumentation-requests>=0.43b0
 Sentry-sdk>=1.33.0
 python-jose[jwa]==3.3.0
 pyjwt[crypto]==2.8.0
-base64>=1.0

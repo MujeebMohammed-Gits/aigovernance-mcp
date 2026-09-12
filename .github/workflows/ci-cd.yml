@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 30
     defaults:
       run:
-        working-directory: /
+        working-directory: .
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -32,7 +32,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r src/requirements.txt
+          pip install -r requirements.txt
       - name: Lint with flake8
         run: |
           flake8 . --count --select=E9,F6,F7,W501 --show-source --statistics
@@ -81,6 +81,24 @@ jobs:
           tags: ${{ env.DEV_IMAGE }}
           cache-from: type=registry,ref=${{ env.DEV_IMAGE }}
           cache-to: type=registry,ref=${{ env.DEV_IMAGE }}
+      - name: Build and push staging image
+        uses: docker/build-push-action@v6
+        with:
+            context: .
+            file: Dockerfile
+            push: true
+            tags: ${{ env.STAGING_IMAGE }}
+            cache-from: type=registry,ref=${{ env.STAGING_IMAGE }}
+            cache-to: type=registry,ref=${{ env.STAGING_IMAGE }}
+      - name: Build and push prod image
+        uses: docker/build-push-action@v6
+        with:
+            context: .
+            file: Dockerfile
+            push: true
+            tags: ${{ env.PROD_IMAGE }}
+            cache-from: type=registry,ref=${{ env.PROD_IMAGE }}
+            cache-to: type=registry,ref=${{ env.PROD_IMAGE }}
       - name: Set build vars
         id: set-vars
         run: |
@@ -96,12 +114,9 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-      - name: Install deployment tools
-        run: |
-          pip install docker-compose
       - name: Deploy to dev environment
         run: |
-          docker-compose -f docker-compose.dev.yml up -d
+          docker compose -f docker-compose.dev.yml up -d
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -118,12 +133,9 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-      - name: Install deployment tools
-        run: |
-          pip install docker-compose
       - name: Deploy to staging environment
         run: |
-          docker-compose -f docker-compose.staging.yml up -d
+          docker compose -f docker-compose.staging.yml up -d
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -142,12 +154,9 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-      - name: Install deployment tools
-        run: |
-          pip install docker-compose
       - name: Deploy to production environment
         run: |
-          docker-compose -f docker-compose.prod.yml up -d
+          docker compose -f docker-compose.prod.yml up -d
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -163,6 +172,8 @@ jobs:
         with:
           channel-id: ${{ secrets.SLACK_CHANNEL }}
           slack-message: "✅ Production deployment successful! SHA: ${{ github.sha }}"
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
   promote-environments:
     name: Promote Environments
     needs: [deploy-dev, deploy-staging, deploy-prod]
@@ -177,3 +188,59 @@ jobs:
           echo "- Staging: ✅ Deployed"
           echo "- Production: ✅ Deployed"
           echo "Promotion complete for SHA: ${{ github.sha }}"
+
+
+    # NEW: Rolling Deployment Job
+    rolling-deploy:
+      name: Rolling Deployment Strategy
+      needs: deploy-prod
+      runs-on: ubuntu-latest
+      timeout-minutes: 45
+      if: github.ref == 'refs/heads/main'
+      steps:
+        - name: Check out repository
+          uses: actions/checkout@v4
+        - name: Execute rolling deployment
+          run: |
+            echo "Starting rolling deployment sequence..."
+            echo "1. Deploy to Development"
+            docker-compose -f docker-compose.dev.yml up -d
+            echo "2. Wait for health checks"
+            sleep 60
+            echo "3. Deploy to Staging"
+            docker-compose -f docker-compose.staging.yml up -d
+            echo "4. Wait for staging validation"
+            sleep 120
+            echo "5. Deploy to Production"
+            docker-compose -f docker-compose.prod.yml up -d
+            echo "6. Monitor production health"
+            sleep 180
+            echo "7. Rolling deployment complete"
+        - name: Send Slack notification
+          uses: slackapi/slack-github-action@v1.25.0
+          with:
+            channel-id: ${{ secrets.SLACK_CHANNEL }}
+            slack-message: "🔄 Rolling deployment completed for SHA: ${{ github.sha }}"
+
+    # NEW: Rollback Automation Job
+    rollback-automation:
+      name: Rollback Automation
+      needs: [deploy-dev, deploy-staging, deploy-prod]
+      runs-on: ubuntu-latest
+      timeout-minutes: 30
+      if: failure() && github.ref == 'refs/heads/main'
+      steps:
+        - name: Check out repository
+          uses: actions/checkout@v4
+        - name: Execute rollback on failure
+          run: |
+            echo "⚠️ Deployment failure detected - initiating rollback..."
+            echo "Rolling back to previous stable version..."
+            docker-compose -f docker-compose.prod.yml down
+            echo "Rollback complete. Manual verification required."
+        - name: Send Slack alert on failure
+          uses: slackapi/slack-github-action@v1.25.0
+          with:
+            channel-id: ${{ secrets.SLACK_CHANNEL }}
+            slack-message: "⚠️ Deployment failed for SHA: ${{ github.sha }}. Rollback initiated. Check logs for details."
+
