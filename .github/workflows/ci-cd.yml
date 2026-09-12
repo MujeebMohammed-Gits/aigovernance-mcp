@@ -1,4 +1,5 @@
 name: CI/CD Pipeline
+
 on:
   push:
     branches: [ main, develop ]
@@ -25,20 +26,25 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
       - name: Lint with flake8
         run: |
           flake8 . --count --select=E9,F6,F7,W501 --show-source --statistics
+
       - name: Type check with mypy
         run: |
           mypy .
+
       - name: Run unit tests
         run: |
           python -m pytest tests/ -v --tb=short
@@ -46,12 +52,14 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+
       - name: Upload test artifacts
         uses: actions/upload-artifact@v4
         with:
           name: test-results-${{ runner.os }}
           path: tests/
           retention-days: 30
+
   build:
     name: Build Docker Image
     needs: lint-test
@@ -64,14 +72,17 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
       - name: Log in to registry
         uses: docker/login-action@v3
         with:
           registry: ${{ secrets.REGISTRY }}
           username: ${{ secrets.REGISTRY_USER }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
+
       - name: Build and push dev image
         uses: docker/build-push-action@v6
         with:
@@ -81,30 +92,34 @@ jobs:
           tags: ${{ env.DEV_IMAGE }}
           cache-from: type=registry,ref=${{ env.DEV_IMAGE }}
           cache-to: type=registry,ref=${{ env.DEV_IMAGE }}
+
       - name: Build and push staging image
         uses: docker/build-push-action@v6
         with:
-            context: .
-            file: Dockerfile
-            push: true
-            tags: ${{ env.STAGING_IMAGE }}
-            cache-from: type=registry,ref=${{ env.STAGING_IMAGE }}
-            cache-to: type=registry,ref=${{ env.STAGING_IMAGE }}
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{ env.STAGING_IMAGE }}
+          cache-from: type=registry,ref=${{ env.STAGING_IMAGE }}
+          cache-to: type=registry,ref=${{ env.STAGING_IMAGE }}
+
       - name: Build and push prod image
         uses: docker/build-push-action@v6
         with:
-            context: .
-            file: Dockerfile
-            push: true
-            tags: ${{ env.PROD_IMAGE }}
-            cache-from: type=registry,ref=${{ env.PROD_IMAGE }}
-            cache-to: type=registry,ref=${{ env.PROD_IMAGE }}
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{ env.PROD_IMAGE }}
+          cache-from: type=registry,ref=${{ env.PROD_IMAGE }}
+          cache-to: type=registry,ref=${{ env.PROD_IMAGE }}
+
       - name: Set build vars
         id: set-vars
         run: |
           echo "dev_image=${{ env.DEV_IMAGE }}" >> $GITHUB_OUTPUT
           echo "staging_image=${{ env.STAGING_IMAGE }}" >> $GITHUB_OUTPUT
           echo "prod_image=${{ env.PROD_IMAGE }}" >> $GITHUB_OUTPUT
+
   deploy-dev:
     name: Deploy to Development
     needs: build
@@ -114,6 +129,7 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
       - name: Deploy to dev environment
         run: |
           docker compose -f docker-compose.dev.yml up -d
@@ -121,9 +137,11 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+
       - name: Verify dev deployment
         run: |
           docker ps --filter "name=aigovernance-dev"
+
   deploy-staging:
     name: Deploy to Staging
     needs: build
@@ -133,6 +151,7 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
       - name: Deploy to staging environment
         run: |
           docker compose -f docker-compose.staging.yml up -d
@@ -140,9 +159,11 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+
       - name: Verify staging deployment
         run: |
           docker ps --filter "name=aigovernance-staging"
+
   deploy-prod:
     name: Deploy to Production
     needs: deploy-staging
@@ -154,6 +175,7 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
       - name: Deploy to production environment
         run: |
           docker compose -f docker-compose.prod.yml up -d
@@ -161,12 +183,15 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+
       - name: Verify production deployment
         run: |
           docker ps --filter "name=aigovernance-prod"
+
       - name: Run post-deployment health checks
         run: |
           curl -f https://aigovernance.example.com/health || exit 1
+
       - name: Notify deployment success
         uses: slackapi/slack-github-action@v1.25.0
         with:
@@ -174,6 +199,7 @@ jobs:
           slack-message: "✅ Production deployment successful! SHA: ${{ github.sha }}"
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+
   promote-environments:
     name: Promote Environments
     needs: [deploy-dev, deploy-staging, deploy-prod]
@@ -189,58 +215,62 @@ jobs:
           echo "- Production: ✅ Deployed"
           echo "Promotion complete for SHA: ${{ github.sha }}"
 
+  rolling-deploy:
+    name: Rolling Deployment Strategy
+    needs: deploy-prod
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
 
-    # NEW: Rolling Deployment Job
-    rolling-deploy:
-      name: Rolling Deployment Strategy
-      needs: deploy-prod
-      runs-on: ubuntu-latest
-      timeout-minutes: 45
-      if: github.ref == 'refs/heads/main'
-      steps:
-        - name: Check out repository
-          uses: actions/checkout@v4
-        - name: Execute rolling deployment
-          run: |
-            echo "Starting rolling deployment sequence..."
-            echo "1. Deploy to Development"
-            docker-compose -f docker-compose.dev.yml up -d
-            echo "2. Wait for health checks"
-            sleep 60
-            echo "3. Deploy to Staging"
-            docker-compose -f docker-compose.staging.yml up -d
-            echo "4. Wait for staging validation"
-            sleep 120
-            echo "5. Deploy to Production"
-            docker-compose -f docker-compose.prod.yml up -d
-            echo "6. Monitor production health"
-            sleep 180
-            echo "7. Rolling deployment complete"
-        - name: Send Slack notification
-          uses: slackapi/slack-github-action@v1.25.0
-          with:
-            channel-id: ${{ secrets.SLACK_CHANNEL }}
-            slack-message: "🔄 Rolling deployment completed for SHA: ${{ github.sha }}"
+      - name: Execute rolling deployment
+        run: |
+          echo "Starting rolling deployment sequence..."
+          echo "1. Deploy to Development"
+          docker compose -f docker-compose.dev.yml up -d
+          echo "2. Wait for health checks"
+          sleep 60
+          echo "3. Deploy to Staging"
+          docker compose -f docker-compose.staging.yml up -d
+          echo "4. Wait for staging validation"
+          sleep 120
+          echo "5. Deploy to Production"
+          docker compose -f docker-compose.prod.yml up -d
+          echo "6. Monitor production health"
+          sleep 180
+          echo "7. Rolling deployment complete"
 
-    # NEW: Rollback Automation Job
-    rollback-automation:
-      name: Rollback Automation
-      needs: [deploy-dev, deploy-staging, deploy-prod]
-      runs-on: ubuntu-latest
-      timeout-minutes: 30
-      if: failure() && github.ref == 'refs/heads/main'
-      steps:
-        - name: Check out repository
-          uses: actions/checkout@v4
-        - name: Execute rollback on failure
-          run: |
-            echo "⚠️ Deployment failure detected - initiating rollback..."
-            echo "Rolling back to previous stable version..."
-            docker-compose -f docker-compose.prod.yml down
-            echo "Rollback complete. Manual verification required."
-        - name: Send Slack alert on failure
-          uses: slackapi/slack-github-action@v1.25.0
-          with:
-            channel-id: ${{ secrets.SLACK_CHANNEL }}
-            slack-message: "⚠️ Deployment failed for SHA: ${{ github.sha }}. Rollback initiated. Check logs for details."
+      - name: Send Slack notification
+        uses: slackapi/slack-github-action@v1.25.0
+        with:
+          channel-id: ${{ secrets.SLACK_CHANNEL }}
+          slack-message: "🔄 Rolling deployment completed for SHA: ${{ github.sha }}"
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
 
+  rollback-automation:
+    name: Rollback Automation
+    needs: [deploy-dev, deploy-staging, deploy-prod]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: failure() && github.ref == 'refs/heads/main'
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Execute rollback on failure
+        run: |
+          echo "⚠️ Deployment failure detected - initiating rollback..."
+          echo "Rolling back to previous stable version..."
+          docker compose -f docker-compose.prod.yml down
+          echo "Rollback complete. Manual verification required."
+
+      - name: Send Slack alert on failure
+        uses: slackapi/slack-github-action@v1.25.0
+        with:
+          channel-id: ${{ secrets.SLACK_CHANNEL }}
+          slack-message: "⚠️ Deployment failed for SHA: ${{ github.sha }}. Rollback initiated. Check logs for details."
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
