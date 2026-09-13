@@ -1,2 +1,5 @@
-import base64, os, sys
-os.chdir(" C:\\AI Projects\\research-agent\)
+"""
+Utility script placeholder for CI/CD operations.
+"""
+
+# Intentionally left minimal — original version was unsafe and removed.

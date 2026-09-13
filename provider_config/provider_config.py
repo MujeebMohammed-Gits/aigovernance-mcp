@@ -1,9 +1,8 @@
-
   # -*- coding: utf-8 -*-
 """
     Provider Configuration Service - Production Hardened
     Manages provider registration, model allow/denylists, and per-agent/purpose routing
-    """
+"""
 import json
 import logging
 import os
@@ -581,8 +580,10 @@ class ProviderConfigService:
                           'provider': prov_name,
                           'model': list(self._model_configs.keys())[0] if self._model_configs else None,
                           'routing': 'fallback_available',
-                          'rationale': f"Fallback: Provider {prov_name} with model {list(self._model_configs.keys())[0] if self._model_configs
-                          else 'N/A'}"
+                          'rationale': (
+                                f"Fallback: Provider {prov_name} with model "
+                                f"{list(self._model_configs.keys())[0] if self._model_configs else 'N/A'}"
+                            )
                       }
 
           return None

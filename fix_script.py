@@ -1,1 +1,5 @@
-import os\nos.chdir(" C:\\AI Projects\\research-agent\)\nprint(	est\)
+"""
+Temporary test script placeholder.
+"""
+
+print("Test script executed.")

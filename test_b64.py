@@ -1,1 +1,3 @@
-import os\nprint(os.getcwd())
+import os
+
+print(os.getcwd())
