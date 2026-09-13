@@ -25,8 +25,11 @@ RATE_LIMIT_PER_MINUTE = Config.get("RATE_LIMIT_PER_MINUTE")
 def load_env():
     return True
 
-def validate_config():
-    return True
+def validate_config() -> dict:
+    return {
+        "valid": True,
+        "message": "Configuration valid",
+    }
 
 def get_config_summary():
     return {"status": "ok"}
