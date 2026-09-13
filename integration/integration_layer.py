@@ -133,38 +133,44 @@ def retry_with_backoff(max_retries: int = 3, backoff_factor: float = 2.0,
       return decorator
 
 
-def manage_timeout(timeout_seconds: int):
-      """
-      Decorator for timeout management.
-      Note: True timeout requires signal-based or thread-based approaches.
-      This decorator sets a timeout context but may not work for all cases.
-      """
-      def decorator(func):
-          @wraps(func)
-          def wrapper(*args, **kwargs):
-              import signal
+from functools import wraps
+import signal
+import logging
 
-              class TimeoutError(Exception):
-                  pass
+logger = logging.getLogger(__name__)
 
-              def signal_handler(signum, frame):
-                  raise TimeoutError(f"Operation timed out after {timeout_seconds}s")
+def manage_timeout(timeout: int = 30):
+    """
+    Decorator for timeout management that supports keyword argument `timeout`.
+    Uses signal-based timeout enforcement (Unix only).
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            class TimeoutError(Exception):
+                pass
 
-              # Set timeout signal
-              old_handler = signal.signal(signal.SIGALRM, signal_handler)
-              signal.alarm(timeout_seconds)
+            def signal_handler(signum, frame):
+                raise TimeoutError(f"Operation timed out after {timeout}s")
 
-              try:
-                  result = func(*args, **kwargs)
-                  signal.alarm(0)  # Cancel alarm
-                  return result
-              except TimeoutError:
-                  logger.error(f"Operation timed out after {timeout_seconds}s")
-                  raise
-              finally:
-                  signal.signal(signal.SIGALRM, old_handler)
-          return wrapper
-      return decorator
+            # Install timeout handler
+            old_handler = signal.signal(signal.SIGALRM, signal_handler)
+            signal.alarm(timeout)
+
+            try:
+                result = func(*args, **kwargs)
+                signal.alarm(0)  # cancel alarm
+                return result
+            except TimeoutError:
+                logger.error(f"Operation timed out after {timeout}s")
+                raise
+            finally:
+                # Restore previous handler
+                signal.signal(signal.SIGALRM, old_handler)
+
+        return wrapper
+    return decorator
+
 
 class AICallContext:
       """Holds the AI call context and policy evaluation state."""
