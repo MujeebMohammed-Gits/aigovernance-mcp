@@ -2,12 +2,8 @@ name: Deploy MCP Control Tower
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   workflow_dispatch:
-
-permissions:
-  contents: read
-  packages: write
 
 jobs:
   build-and-push:
@@ -44,10 +40,6 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        with:
-          buildkitd-config-inline: |
-            [registry."${{ secrets.REGISTRY_URL }}"]
-              mirrors = ["${{ secrets.REGISTRY_URL }}"]
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
@@ -58,3 +50,4 @@ jobs:
           tags: |
             ${{ secrets.REGISTRY_URL }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
             ${{ secrets.REGISTRY_URL }}/${{ env.IMAGE_NAME }}:latest
+          # IMPORTANT: no cache-from, no cache-to
