@@ -51,6 +51,3 @@ jobs:
           tags: |
             ${{ secrets.REGISTRY_URL }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
             ${{ secrets.REGISTRY_URL }}/${{ env.IMAGE_NAME }}:latest
-          # If you later want caching, you can add:
-          # cache-from: type=registry,ref=${{ secrets.REGISTRY_URL }}/${{ env.IMAGE_NAME }}:cache
-          # cache-to: type=registry,ref=${{ secrets.REGISTRY_URL }}/${{ env.IMAGE_NAME }}:cache,mode=max
