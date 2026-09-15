@@ -24,7 +24,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set image name
-        run: echo "IMAGE=ghcr.io/${{ github.repository_owner }}/aigovernance-dev" >> $GITHUB_ENV
+        run: echo "IMAGE=ghcr.io/${{ github.repository_owner }}/aigovernance-mcp" >> $GITHUB_ENV
 
       - name: Build and push
         uses: docker/build-push-action@v6
