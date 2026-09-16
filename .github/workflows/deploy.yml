@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      DOCKERHUB_REPO: mujeebmohammed/aigovernance-dev
+      IMAGE_NAME: mujeebmohammed/aigovernance-dev
 
     steps:
       - name: Checkout repository
@@ -33,5 +33,5 @@ jobs:
           file: Dockerfile
           push: true
           tags: |
-            ${{ env.DOCKERHUB_REPO }}:${{ github.sha }}
-            ${{ env.DOCKERHUB_REPO }}:latest
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.IMAGE_NAME }}:latest
