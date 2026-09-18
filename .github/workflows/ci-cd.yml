@@ -133,6 +133,10 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Install deployment tools
+        run: |
+          pip install docker-compose
+
       - name: Deploy to dev environment
         run: |
           docker compose -f docker-compose.dev.yml up -d
@@ -144,6 +148,10 @@ jobs:
       - name: Verify dev deployment
         run: |
           docker ps --filter "name=aigovernance-dev"
+      
+      - name: Run dev smoke tests
+        run: |
+          curl -f http://localhost:8000/health || exit 1
 
   deploy-staging:
     name: Deploy to Staging
@@ -154,6 +162,10 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Install deployment tools
+        run: |
+          pip install docker-compose
 
       - name: Deploy to staging environment
         run: |
@@ -167,6 +179,10 @@ jobs:
         run: |
           docker ps --filter "name=aigovernance-staging"
 
+      - name: Run staging smoke tests
+        run: |
+          curl -f http://localhost:8000/health || exit 1
+
   deploy-prod:
     name: Deploy to Production
     needs: deploy-staging
@@ -178,6 +194,10 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Install deployment tools
+        run: |
+          pip install docker-compose
 
       - name: Deploy to production environment
         run: |
@@ -228,6 +248,10 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Install deployment tools
+        run: |
+          pip install docker-compose
+
       - name: Execute rolling deployment
         run: |
           echo "Starting rolling deployment sequence..."
@@ -263,6 +287,10 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Install deployment tools
+        run: |
+          pip install docker-compose
+          
       - name: Execute rollback on failure
         run: |
           echo "⚠️ Deployment failure detected - initiating rollback..."
