@@ -128,45 +128,56 @@ jobs:
           echo "staging_image=${{ env.STAGING_IMAGE }}:${{ github.sha }}" >> $GITHUB_OUTPUT
           echo "prod_image=${{ env.PROD_IMAGE }}:${{ github.sha }}" >> $GITHUB_OUTPUT
 
-  deploy-dev:
-    name: Deploy to Development
-    needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    environment: development
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+deploy-dev:
+  name: Deploy to Development
+  needs: build
+  runs-on: ubuntu-latest
+  timeout-minutes: 45
+  environment: development
+  steps:
+    - name: Check out repository
+      uses: actions/checkout@v4
 
-      - name: Install Docker Engine & Compose
-        run: |
-          curl -fsSL https://get.docker.com -o get-docker.sh
-          sudo sh get-docker.sh
-          sudo systemctl start docker
-          docker --version
-          docker compose version
+    - name: Install Docker Engine & Compose
+      run: |
+        curl -fsSL https://get.docker.com -o get-docker.sh
+        sudo sh get-docker.sh
+        sudo systemctl start docker
+        docker --version
+        docker compose version
 
-      - name: Deploy to dev environment
-        run: |
-          docker compose -f docker-compose.dev.yml up -d
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+    - name: Deploy to dev environment
+      run: |
+        docker compose -f docker-compose.dev.yml config
+        docker compose -f docker-compose.dev.yml up -d
+      env:
+        DEV_IMAGE: ${{ needs.build.outputs.dev_image }}
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
 
-      - name: Show container logs
-        run: docker logs mcp-server || true
+    - name: Inspect dev deployment
+      if: always()
+      run: |
+        docker compose -f docker-compose.dev.yml ps -a
+        docker compose -f docker-compose.dev.yml logs --no-color
 
-      - name: Verify dev deployment
-        run: |
-          docker ps --filter "name=aigovernance-dev"
-      
-      - name: Wait for service
-        run: sleep 5
+    - name: Wait for dev service
+      run: |
+        for i in {1..30}; do
+          if curl --fail --silent http://localhost:8000/health; then
+            echo "Development service is healthy"
+            exit 0
+          fi
 
-      - name: Run dev smoke tests
-        run: |
-          curl -f http://localhost:8000/health || exit 1
+          echo "Waiting for development service..."
+          sleep 2
+        done
+
+        echo "Development service did not become healthy"
+        docker compose -f docker-compose.dev.yml ps -a
+        docker compose -f docker-compose.dev.yml logs --no-color
+        exit 1
 
   deploy-staging:
     name: Deploy to Staging
