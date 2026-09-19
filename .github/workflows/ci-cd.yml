@@ -138,10 +138,12 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Install deployment tools
+      - name: Install Docker & Compose
         run: |
-          sudo apt-get update
-          sudo apt-get install -y docker-compose-plugin
+          curl -fsSL https://get.docker.com -o get-docker.sh
+          sudo sh get-docker.sh
+          docker --version
+          docker compose version
 
       - name: Deploy to dev environment
         run: |
@@ -169,10 +171,12 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Install deployment tools
+      - name: Install Docker & Compose
         run: |
-          sudo apt-get update
-          sudo apt-get install -y docker-compose-plugin
+          curl -fsSL https://get.docker.com -o get-docker.sh
+          sudo sh get-docker.sh
+          docker --version
+          docker compose version
 
       - name: Deploy to staging environment
         run: |
@@ -202,10 +206,12 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Install deployment tools
+      - name: Install Docker & Compose
         run: |
-          sudo apt-get update
-          sudo apt-get install -y docker-compose-plugin
+          curl -fsSL https://get.docker.com -o get-docker.sh
+          sudo sh get-docker.sh
+          docker --version
+          docker compose version
 
       - name: Deploy to production environment
         run: |
@@ -256,10 +262,12 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Install deployment tools
+      - name: Install Docker & Compose
         run: |
-          sudo apt-get update
-          sudo apt-get install -y docker-compose-plugin
+          curl -fsSL https://get.docker.com -o get-docker.sh
+          sudo sh get-docker.sh
+          docker --version
+          docker compose version
 
       - name: Execute rolling deployment
         run: |
