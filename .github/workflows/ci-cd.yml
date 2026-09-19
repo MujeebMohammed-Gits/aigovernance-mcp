@@ -140,7 +140,8 @@ jobs:
 
       - name: Install deployment tools
         run: |
-          pip install docker-compose
+          sudo apt-get update
+          sudo apt-get install -y docker-compose-plugin
 
       - name: Deploy to dev environment
         run: |
@@ -170,7 +171,8 @@ jobs:
 
       - name: Install deployment tools
         run: |
-          pip install docker-compose
+          sudo apt-get update
+          sudo apt-get install -y docker-compose-plugin
 
       - name: Deploy to staging environment
         run: |
@@ -194,7 +196,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment:
-      name: production
+      name: "production"
       url: https://aigovernance.example.com
     steps:
       - name: Check out repository
@@ -202,7 +204,8 @@ jobs:
 
       - name: Install deployment tools
         run: |
-          pip install docker-compose
+          sudo apt-get update
+          sudo apt-get install -y docker-compose-plugin
 
       - name: Deploy to production environment
         run: |
@@ -255,7 +258,8 @@ jobs:
 
       - name: Install deployment tools
         run: |
-          pip install docker-compose
+          sudo apt-get update
+          sudo apt-get install -y docker-compose-plugin
 
       - name: Execute rolling deployment
         run: |
