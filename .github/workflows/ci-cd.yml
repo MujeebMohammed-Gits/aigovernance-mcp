@@ -138,10 +138,11 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Install Docker & Compose
+      - name: Install Docker Engine & Compose
         run: |
           curl -fsSL https://get.docker.com -o get-docker.sh
           sudo sh get-docker.sh
+          sudo systemctl start docker
           docker --version
           docker compose version
 
