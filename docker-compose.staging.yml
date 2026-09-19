@@ -1,48 +1,44 @@
-  #### 10. Staging Docker Compose
+version: '3.8'
 
-  version: '3.8'
+services:
+  mcp-server:
+    image: ${STAGING_IMAGE}
+    ports:
+      - "8000:8000"
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      DEBUG: "False"
+      LOG_LEVEL: "INFO"
+      HOST: "0.0.0.0"
+      PORT: "8000"
+    command: uvicorn server:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  services:
-    mcp-server:
-      build:
-        context: .
-        dockerfile: Dockerfile
-      environment:
-        - OPENAI_API_KEY=${secrets.OPENAI_API_KEY}
-        - ANTHROPIC_API_KEY=${secrets.ANTHROPIC_API_KEY}
-        - GOOGLE_API_KEY=${secrets.GOOGLE_API_KEY}
-        - DEBUG=False
-        - LOG_LEVEL=INFO
-        - HOST=0.0.0.0
-        - PORT=8000
-      restart: unless-stopped
-      healthcheck:
-        test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-        interval: 30s
-        timeout: 10s
-        retries: 3
+  prometheus:
+    image: prom/prometheus:v2.45
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    restart: unless-stopped
 
-    # Optional: Prometheus monitoring
-    prometheus:
-      image: prom/prometheus:v2.45
-      ports:
-        - "9090:9090"
-      volumes:
-        - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      restart: unless-stopped
+  grafana:
+    image: grafana/grafana:10.1
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+    depends_on:
+      - prometheus
+    restart: unless-stopped
 
-    # Optional: Grafana for metrics visualization
-    grafana:
-      image: grafana/grafana:10.1
-      ports:
-        - "3000:3000"
-      environment:
-        - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
-      depends_on:
-        - prometheus
-      restart: unless-stopped
-
-  volumes:
-    redis_data:
-      driver: local
-
+volumes:
+  redis_data:
+    driver: local

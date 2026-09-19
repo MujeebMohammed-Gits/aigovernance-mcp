@@ -1,68 +1,60 @@
-  #### 11. Production Docker Compose
+version: '3.8'
 
-  version: '3.8'
+services:
+  mcp-server:
+    image: ${PROD_IMAGE}
+    ports:
+      - "80:8000"
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      DEBUG: "False"
+      LOG_LEVEL: "WARNING"
+      HOST: "0.0.0.0"
+      PORT: "8000"
+      ALLOWED_HOSTS: "aigovernance.example.com,www.aigovernance.example.com"
+    command: uvicorn server:app --host 0.0.0.0 --port 8000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
 
-  services:
-    mcp-server:
-      build:
-        context: .
-        dockerfile: Dockerfile
-      ports:
-        - "80:80"
-      environment:
-        - OPENAI_API_KEY=${OPENAI_API_KEY}
-        - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-        - GOOGLE_API_KEY=${GOOGLE_API_KEY}
-        - DEBUG=False
-        - LOG_LEVEL=WARNING
-        - HOST=0.0.0.0
-        - PORT=80
-        - ALLOWED_HOSTS=aigovernance.example.com,www.aigovernance.example.com
-      restart: unless-stopped
-      healthcheck:
-        test: ["CMD", "curl", "-f", "http://localhost:80/health"]
-        interval: 30s
-        timeout: 10s
-        retries: 3
-        start_period: 40s
+  traefik:
+    image: traefik:v3.1
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--entrypoints.Web.address=:80"
+    ports:
+      - "80:80"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    restart: unless-stopped
 
-    # Optional: Traefik reverse proxy
-    traefik:
-      image: traefik:v3.1
-      command:
-        - "--api.insecure=true"
-        - "--providers.docker=true"
-        - "--entrypoints.Web.address=:80"
-      ports:
-        - "80:80"
-      volumes:
-        - "/var/run/docker.sock:/var/run/docker.sock:ro"
-      restart: unless-stopped
+  prometheus:
+    image: prom/prometheus:v2.45
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    restart: unless-stopped
 
-    # Optional: Prometheus for monitoring
-    prometheus:
-      image: prom/prometheus:v2.45
-      ports:
-        - "9090:9090"
-      volumes:
-        - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      restart: unless-stopped
+  grafana:
+    image: grafana/grafana:10.1
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
 
-    # Optional: Grafana for metrics
-    grafana:
-      image: grafana/grafana:10.1
-      ports:
-        - "3000:3000"
-      restart: unless-stopped
+  loki:
+    image: grafana/loki:2.9
+    ports:
+      - "3100:3100"
+    restart: unless-stopped
 
-    # Optional: Loki for log aggregation
-    loki:
-      image: grafana/loki:2.9
-      ports:
-        - "3100:3100"
-      restart: unless-stopped
-
-  volumes:
-    redis_data:
-      driver: local
-
+volumes:
+  redis_data:
+    driver: local

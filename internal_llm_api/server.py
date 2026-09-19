@@ -1,9 +1,9 @@
-
-  # -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
-    Internal LLM API Production Hardened
-    FastAPI server for internal LLM integration with validation, security, and health reporting
-  """
+Internal LLM API - Production Hardened
+FastAPI server for internal LLM integration with validation, security, and health reporting
+"""
+
 import json
 import os
 import threading
@@ -12,484 +12,252 @@ import time
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
 
-  # Configure structured logger
-logger = logging.getLogger('mcp_internal_llm')
+from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, validator, root_validator
+import uvicorn
+
+# ============================================================
+# Logging
+# ============================================================
+
+logger = logging.getLogger("mcp_internal_llm")
 logger.setLevel(logging.INFO)
 handler = logging.StreamHandler()
-handler.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(name)s: %(message)s')
-handler.setFormatter(formatter)
+handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
 logger.addHandler(handler)
 
-  # Thread lock for concurrent access
+# ============================================================
+# Global State
+# ============================================================
+
 _api_lock = threading.Lock()
 
-  # Health state
 _api_health: Dict[str, Any] = {
-      'status': 'healthy',
-      'requests_processed': 0,
-      'requests_failed': 0,
-      'avg_latency_ms': 0,
-      'last_request_time': ''
-  }
+    "status": "healthy",
+    "requests_processed": 0,
+    "requests_failed": 0,
+    "avg_latency_ms": 0,
+    "last_request_time": ""
+}
 
-  # Allowed models configuration
-_ALLOWED_MODELS = ['gpt-4', 'gpt-3.5-turbo', 'claude-2', 'gemini-pro', 'internal-model']
+_ALLOWED_MODELS = ["gpt-4", "gpt-3.5-turbo", "claude-2", "gemini-pro", "internal-model"]
 
-  # Rate limiting state
 _rate_limit_state: Dict[str, Dict] = {}
 _rate_limit_lock = threading.Lock()
 
-
-  # ============================================================
-  # Pydantic Models with Validation
-  # ============================================================
-
-from fastapi import FastAPI, HTTPException, BackgroundTasks
-from pydantic import BaseModel, validator, root_validator
-import uvicorn
-from fastapi.middleware.cors import CORSMiddleware
-
+# ============================================================
+# Pydantic Models
+# ============================================================
 
 class Message(BaseModel):
-      """Message model with content validation."""
-      role: str
-      content: str
+    role: str
+    content: str
 
-      @validator('role')
-      def validate_role(cls, v):
-          if v not in ['user', 'assistant', 'system']:
-              raise ValueError(f"Invalid role: {v}. Must be one of: user, assistant, system")
-          return v
+    @validator("role")
+    def validate_role(cls, v):
+        allowed = ["user", "assistant", "system"]
+        if v not in allowed:
+            raise ValueError(f"Invalid role: {v}. Must be one of: {allowed}")
+        return v
 
-      @validator('content')
-      def validate_content(cls, v):
-          if not v or not v.strip():
-              raise ValueError("Message content cannot be empty")
-          if len(v) > 100000:  # Max 100KB per message
-              raise ValueError("Message content too long (max 100KB)")
-          return v
+    @validator("content")
+    def validate_content(cls, v):
+        if not v.strip():
+            raise ValueError("Message content cannot be empty")
+        if len(v) > 100000:
+            raise ValueError("Message content too long (max 100KB)")
+        return v
 
 
 class LLMRequest(BaseModel):
-      """LLM request model with comprehensive validation."""
-      agent_id: str
-      model: str
-      purpose: str
-      messages: List[Message]
-      metadata: Optional[dict] = None
+    agent_id: str
+    model: str
+    purpose: str
+    messages: List[Message]
+    metadata: Optional[dict] = None
 
-      @validator('agent_id')
-      def validate_agent_id(cls, v):
-          if not v or not v.strip():
-              raise ValueError("Agent ID cannot be empty")
-          if len(v) > 100:
-              raise ValueError("Agent ID too long (max 100 characters)")
-          return v.strip()
+    @validator("agent_id")
+    def validate_agent_id(cls, v):
+        if not v.strip():
+            raise ValueError("Agent ID cannot be empty")
+        if len(v) > 100:
+            raise ValueError("Agent ID too long (max 100 chars)")
+        return v.strip()
 
-      @validator('model')
-      def validate_model(cls, v):
-          if not v or not v.strip():
-              raise ValueError("Model cannot be empty")
-          if v not in _ALLOWED_MODELS:
-              raise ValueError(f"Model '{v}' not allowed. Allowed models: {', '.join(_ALLOWED_MODELS)}")
-          return v.strip()
+    @validator("model")
+    def validate_model(cls, v):
+        if v not in _ALLOWED_MODELS:
+            raise ValueError(f"Model '{v}' not allowed. Allowed: {', '.join(_ALLOWED_MODELS)}")
+        return v.strip()
 
-      @validator('purpose')
-      def validate_purpose(cls, v):
-          if not v or not v.strip():
-              raise ValueError("Purpose cannot be empty")
-          valid_purposes = ['analysis', 'generation', 'classification', 'summarization', 'translation', 'custom']
-          if v not in valid_purposes:
-              raise ValueError(f"Invalid purpose: {v}. Must be one of: {', '.join(valid_purposes)}")
-          return v.strip()
+    @validator("purpose")
+    def validate_purpose(cls, v):
+        valid = ["analysis", "generation", "classification", "summarization", "translation", "custom"]
+        if v not in valid:
+            raise ValueError(f"Invalid purpose: {v}. Must be one of: {valid}")
+        return v.strip()
 
-      @validator('messages')
-      def validate_messages(cls, v):
-          if not v:
-              raise ValueError("At least one message required")
-          if len(v) > 100:
-              raise ValueError("Too many messages (max 100)")
-          return v
+    @validator("messages")
+    def validate_messages(cls, v):
+        if not v:
+            raise ValueError("At least one message required")
+        if len(v) > 100:
+            raise ValueError("Too many messages (max 100)")
+        return v
 
-      @root_validator
-      def check_metadata(cls, values):
-          # Validate metadata if provided
-          metadata = values.get('metadata')
-          if metadata:
-              if not isinstance(metadata, dict):
-                  raise ValueError("Metadata must be a dictionary")
-              if len(str(metadata)) > 50000:  # Max 50KB metadata
-                  raise ValueError("Metadata too large (max 50KB)")
-          return values
+    @root_validator
+    def validate_metadata(cls, values):
+        metadata = values.get("metadata")
+        if metadata:
+            if not isinstance(metadata, dict):
+                raise ValueError("Metadata must be a dictionary")
+            if len(str(metadata)) > 50000:
+                raise ValueError("Metadata too large (max 50KB)")
+        return values
 
 
 class LLMResponse(BaseModel):
-      """LLM response model with security headers."""
-      id: str
-      type: str
-      role: str
-      model: str
-      content: List[dict]
-      usage: dict
-      # Additional security fields
-      processed_at: str = ''
-      processing_time_ms: int = 0
+    id: str
+    type: str
+    role: str
+    model: str
+    content: List[dict]
+    usage: dict
+    processed_at: str = ""
+    processing_time_ms: int = 0
 
-
-  # ============================================================
-  # FastAPI Application
-  # ============================================================
+# ============================================================
+# FastAPI App
+# ============================================================
 
 app = FastAPI(
-      title="Internal LLM API - Production Hardened",
-      description="Secure internal LLM service for MCP Control-Tower",
-      version="2.0.0",
-      docs_url="/docs",
-      redoc_url="/redoc"
-  )
+    title="Internal LLM API - Production Hardened",
+    description="Secure internal LLM service for MCP Control-Tower",
+    version="2.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
 
-  # Add CORS middleware for controlled access
 app.add_middleware(
-      CORSMiddleware,
-      allow_origins=["*"],  # In production, replace with specific origins
-      allow_credentials=True,
-      allow_methods=["POST"],
-      allow_headers=["Content-Type", "Authorization"],
-  )
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["POST"],
+    allow_headers=["Content-Type", "Authorization"],
+)
 
-
-  # ============================================================
-  # Helper Functions
-  # ============================================================
+# ============================================================
+# Helper Functions
+# ============================================================
 
 def _calculate_processing_time(start_time: float) -> int:
-      """Calculate processing time in milliseconds."""
-      return int((time.time() - start_time) * 1000)
-
+    return int((time.time() - start_time) * 1000)
 
 def _update_health_stats(success: bool, latency_ms: int):
-      """Update API health statistics with thread safety."""
-      with _api_lock:
-          _api_health['requests_processed'] += 1
-          if not success:
-              _api_health['requests_failed'] += 1
-          _api_health['avg_latency_ms'] = (
-              (_api_health['avg_latency_ms'] * (_api_health['requests_processed'] - 1) + latency_ms)
-              / _api_health['requests_processed']
-          )
-          _api_health['last_request_time'] = datetime.now(timezone.utc).isoformat()
+    with _api_lock:
+        _api_health["requests_processed"] += 1
+        if not success:
+            _api_health["requests_failed"] += 1
 
+        count = _api_health["requests_processed"]
+        prev_avg = _api_health["avg_latency_ms"]
+
+        _api_health["avg_latency_ms"] = (prev_avg * (count - 1) + latency_ms) / count
+        _api_health["last_request_time"] = datetime.now(timezone.utc).isoformat()
 
 def _check_rate_limit(agent_id: str) -> bool:
-      """Check if agent is within rate limits with thread safety."""
-      with _rate_limit_lock:
-          now = time.time()
-          if agent_id not in _rate_limit_state:
-              _rate_limit_state[agent_id] = {'count': 0, 'first_request': now}
+    with _rate_limit_lock:
+        now = time.time()
+        if agent_id not in _rate_limit_state:
+            _rate_limit_state[agent_id] = {"count": 0, "first_request": now}
 
-          state = _rate_limit_state[agent_id]
-          # Rate limit: max 100 requests per minute per agent
-          if now - state['first_request'] > 60:
-              # Reset minute counter
-              state['count'] = 0
-              state['first_request'] = now
+        state = _rate_limit_state[agent_id]
 
-          state['count'] += 1
-          if state['count'] > 100:
-              # Reset if window expired
-              state['count'] = 0
-              state['first_request'] = now
-              return False
+        if now - state["first_request"] > 60:
+            state["count"] = 0
+            state["first_request"] = now
 
-          return True
+        state["count"] += 1
 
+        return state["count"] <= 100
 
-  # ============================================================
-  # API Endpoints
-  # ============================================================
+# ============================================================
+# API Endpoints
+# ============================================================
 
-@app.get("/health", include_in_schema=False)
+@app.get("/health")
 async def health_check():
-      """Health check endpoint with thread-safe status."""
-      with _api_lock:
-          health = dict(_api_health)
-          health['status'] = 'healthy' if _api_health['requests_failed'] < _api_health['requests_processed'] else 'degraded'
-      return health
-
+    with _api_lock:
+        health = dict(_api_health)
+        health["status"] = (
+            "healthy"
+            if _api_health["requests_failed"] < _api_health["requests_processed"]
+            else "degraded"
+        )
+    return health
 
 @app.post("/internal-llm", response_model=LLMResponse)
 def internal_llm(request: LLMRequest, background_tasks: BackgroundTasks):
-      """
-      Process internal LLM request with full validation, rate limiting, and security.
+    start_time = time.time()
 
-      Features:
-      - Input validation (Pydantic models)
-      - Model allowlist enforcement
-      - Rate limiting
-      - Request sanitization
-      - Health reporting
-      - Structured logging
-      """
-      start_time = time.time()
+    if not _check_rate_limit(request.agent_id):
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded for agent {request.agent_id}. Max 100 requests/minute."
+        )
 
-      # Check rate limits
-      if not _check_rate_limit(request.agent_id):
-          raise HTTPException(
-              status_code=429,
-              detail=f"Rate limit exceeded for agent {request.agent_id}. Max 100 requests/minute."
-          )
+    try:
+        safe_messages = []
+        for msg in request.messages:
+            safe_content = (
+                msg.content.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+            )
+            safe_messages.append(Message(role=msg.role, content=safe_content))
 
-      try:
-          # Sanitize input - escape potentially dangerous content
-          safe_messages = []
-          for msg in request.messages:
-              # Escape HTML/XML characters in content
-              safe_content = msg.content.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-              safe_messages.append(Message(role=msg.role, content=safe_content))
+        user_texts = [m.content for m in safe_messages if m.role == "user"]
+        combined = "\n".join(user_texts) if user_texts else ""
 
-          # Combine user texts
-          user_texts = [m.content for m in safe_messages if m.role == "user"]
-          combined = "\n".join(user_texts) if user_texts else ""
+        reply_text = (
+            f"[Internal LLM]\n"
+            f"Agent: {request.agent_id}\n"
+            f"Purpose: {request.purpose}\n"
+            f"Model: {request.model}\n\n"
+            f"User said:\n{combined}\n\n"
+            f"(This is a response generated by the internal LLM API.)"
+        )
 
-          # Generate reply (mock internal model logic)
-          reply_text = (
-              f"[Internal LLM]\n"
-              f"Agent: {request.agent_id}\n"
-              f"Purpose: {request.purpose}\n"
-              f"Model: {request.model}\n\n"
-              f"User said:\n{combined}\n\n"
-              f"(This is a response generated by the internal LLM API.)"
-          )
+        response = LLMResponse(
+            id=f"internal-{int(time.time())}",
+            type="message",
+            role="assistant",
+            model=request.model,
+            content=[{"type": "text", "text": reply_text}],
+            usage={"total_tokens": len(combined.split())},
+            processed_at=datetime.now(timezone.utc).isoformat(),
+            processing_time_ms=_calculate_processing_time(start_time)
+        )
 
-          # Create response
-          response = LLMResponse(
-              id=f"internal-{int(time.time())}",
-              type="message",
-              role="assistant",
-              model=request.model,
-              content=[{"type": "text", "text": reply_text}],
-              usage={"total_tokens": len(combined.split()) if combined else 0},
-              processed_at=datetime.now(timezone.utc).isoformat(),
-              processing_time_ms=_calculate_processing_time(start_time)
-          )
+        _update_health_stats(True, response.processing_time_ms)
+        return response
 
-          # Update health stats
-          _update_health_stats(True, response.processing_time_ms)
+    except Exception as e:
+        _update_health_stats(False, _calculate_processing_time(start_time))
+        logger.error(f"Internal LLM processing error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal LLM processing failed: {str(e)}")
 
-          return response
-
-      except Exception as e:
-          # Update health stats on failure
-          _update_health_stats(False, _calculate_processing_time(start_time))
-
-          logger.error(f"Internal LLM processing error: {e}", exc_info=True)
-
-          # Return error response
-          raise HTTPException(
-              status_code=500,
-              detail=f"Internal LLM processing failed: {str(e)}"
-          )
-
-
-  # ============================================================
-  # Health & Statistics Endpoints
-  # ============================================================
-
-@app.get("/stats")
-async def get_stats():
-      """Get API statistics with thread-safe access."""
-      with _api_lock:
-          return {
-              'health': _api_health,
-              'allowed_models': _ALLOWED_MODELS,
-              'rate_limit': {
-                  'max_requests_per_minute': 100,
-                  'current_agent_requests': {
-                      k: v['count'] for k, v in _rate_limit_state.items()
-                  }
-              }
-          }
-
-
-@app.get("/model-allowlist")
-async def get_allowlist():
-      """Get allowed models list."""
-      return {'allowed_models': _ALLOWED_MODELS}
-
-
-
-from flask import Flask, request, jsonify
-
-  # Add project root to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from config import load_env, validate_config, get_config_summary
-
-  # Initialize Flask app
-app = Flask(__name__)
-
-  # Load configuration
-load_env()
-config = validate_config()
-
-  # Global state
-START_TIME = time.time()
-PROVIDER_STATES = {
-      "openai": {"failures": 0, "open": False, "opened_at": None},
-      "anthropic": {"failures": 0, "open": False, "opened_at": None},
-      "google": {"failures": 0, "open": False, "opened_at": None},
-  }
-RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "100"))
-_request_count = 0
-_last_reset = time.time()
-
-
-@app.route('/health', methods=['GET'])
-def health_check():
-      """Health check endpoint for deployment validation."""
-      current_time = time.time()
-      elapsed = current_time - START_TIME
-
-      # Count healthy providers
-      healthy_providers = 0
-      for provider, state in PROVIDER_STATES.items():
-          if not state["open"] or (current_time - state.get("opened_at", 0) >= 60):
-              healthy_providers += 1
-
-      # Circuit breaker states
-      cb_states = {}
-      for provider, state in PROVIDER_STATES.items():
-          cb_states[provider] = {
-              "open": state["open"],
-              "failures": state["failures"]
-          }
-
-      return jsonify({
-          "status": "healthy",
-          "version": "2.0.0",
-          "uptime_seconds": int(elapsed),
-          "providers": {
-              "openai": not PROVIDER_STATES["openai"]["open"],
-              "anthropic": not PROVIDER_STATES["anthropic"]["open"],
-              "google": not PROVIDER_STATES["google"]["open"]
-          },
-          "circuit_breakers": cb_states,
-          "rate_limit": {
-              "per_minute": RATE_LIMIT_PER_MINUTE,
-              "current": min(_request_count, RATE_LIMIT_PER_MINUTE)
-          },
-          "configuration": {
-              "debug": os.getenv("DEBUG", "False").lower() in ("true", "1", "yes"),
-              "allowed_hosts": [h.strip() for h in os.getenv("ALLOWED_HOSTS", "").split(",") if h.strip()]
-          }
-      })
-
-
-@app.route('/status', methods=['GET'])
-def status_check():
-      """Extended status endpoint."""
-      return jsonify({
-          "name": "MCP Control-Tower",
-          "environment": os.getenv("LOG_LEVEL", "INFO"),
-          "modules": {
-              "mcp_service": True,  # Would dynamically check
-              "policy_engine": True,
-              "agent_registry": True,
-              "usage_tracker": True
-          }
-      })
-
-
-  # Rate limiting middleware
-def rate_limit(func):
-      """Simple rate limiting decorator."""
-      def wrapper(*args, **kwargs):
-          global _request_count, _last_reset
-          current_time = time.time()
-
-          # Reset counter every minute
-          if current_time - _last_reset >= 60:
-              _last_reset = current_time
-              _request_count = 0
-
-          _request_count += 1
-
-          if _request_count > RATE_LIMIT_PER_MINUTE:
-              return jsonify({
-                  "error": "Rate limit exceeded",
-                  "limit": RATE_LIMIT_PER_MINUTE,
-                  "current": _request_count
-              }), 429
-
-          return func(*args, **kwargs)
-      wrapper.__name__ = func.__name__
-      return wrapper
-
-
-  # Apply rate limiting to all routes
-for route in list(app.view_functions.keys()):
-      app.view_functions[rate_limit.__name__](route)
-
-
-@app.route('/', methods=['GET'])
-def index():
-      """Root endpoint with basic info."""
-      return jsonify({
-          "service": "MCP Control-Tower",
-          "version": "2.0.0",
-          "endpoints": ["/health", "/status", "/"],
-          "documentation": "https://yourdomain.com/docs"
-      })
-
-
-  # Error handlers
-@app.errorhandler(404)
-def not_found(e):
-      return jsonify({"error": "Endpoint not found"}), 404
-
-
-@app.errorhandler(429)
-def ratelimit(e):
-      return jsonify({"error": "Rate limit exceeded"}), 429
-
-
-@app.errorhandler(500)
-def internal_error(e):
-      return jsonify({"error": "Internal server error"}), 500
-
-
-def run_server(host: str = None, port: int = None, debug: bool = None):
-      """Run the Flask server with proper configuration."""
-      host = host or os.getenv("HOST", "0.0.0.0")
-      port = port or int(os.getenv("PORT", "8000"))
-      debug = debug or os.getenv("DEBUG", "False").lower() in ("true", "1", "yes")
-
-      print(f"Starting MCP Control-Tower server...")
-      print(f"  URL: http://{host}:{port}")
-      print(f"  Health: http://{host}:{port}/health")
-      print(f"  Debug mode: {debug}")
-
-      # Don't use debug=True in production
-      app.run(host=host, port=port, debug=debug)
-
-
-  # ============================================================
-  # Server Startup
-  # ============================================================
+# ============================================================
+# Server Startup
+# ============================================================
 
 if __name__ == "__main__":
-      print("=" * 70)
-      print("INTERNAL LLM API - PRODUCTION HARDENED")
-      print("=" * 70)
-      print()
-      print("Starting Internal LLM API server...")
-      print("  Health endpoint:   GET /health")
-      print("  Stats endpoint:    GET /stats")
-      print("  API endpoint:      POST /internal-llm")
-      print("  Model allowlist:   ", ', '.join(_ALLOWED_MODELS))
-      print()
-      uvicorn.run(app, host="0.0.0.0", port=8000,
-                  log_level="info",
-                  access_log=True)
-
+    uvicorn.run(
+        "server:app",
+        host="0.0.0.0",
+        port=8000,
+        log_level="info",
+        access_log=True,
+        reload=False
+    )

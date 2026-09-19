@@ -153,10 +153,16 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
 
+      - name: Show container logs
+        run: docker logs mcp-server || true
+
       - name: Verify dev deployment
         run: |
           docker ps --filter "name=aigovernance-dev"
       
+      - name: Wait for service
+        run: sleep 5
+
       - name: Run dev smoke tests
         run: |
           curl -f http://localhost:8000/health || exit 1
