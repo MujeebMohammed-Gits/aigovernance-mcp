@@ -8,9 +8,11 @@ on:
   workflow_dispatch:
 
 env:
-  DEV_IMAGE: ${{ secrets.REGISTRY }}/aigovernance-dev:${{ github.sha }}
-  STAGING_IMAGE: ${{ secrets.REGISTRY }}/aigovernance-staging:${{ github.sha }}
-  PROD_IMAGE: ${{ secrets.REGISTRY }}/aigovernance-prod:${{ github.sha }}
+  REGISTRY: docker.io
+  IMAGE_NAMESPACE: ${{ secrets.DOCKERHUB_USERNAME }}
+  DEV_IMAGE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/aigovernance-dev
+  STAGING_IMAGE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/aigovernance-staging
+  PROD_IMAGE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/aigovernance-prod
   PYTHON_VERSION: "3.11"
   PROJECT_ROOT: /
   REQUIREMENTS_FILE: requirements.txt
@@ -82,46 +84,49 @@ jobs:
       - name: Log in to registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ secrets.REGISTRY }}
-          username: ${{ secrets.REGISTRY_USER }}
-          password: ${{ secrets.REGISTRY_PASSWORD }}
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # DEV IMAGE
       - name: Build and push dev image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
           push: true
-          tags: ${{ env.DEV_IMAGE }}
-          cache-from: type=registry,ref=${{ env.DEV_IMAGE }}
-          cache-to: type=registry,ref=${{ env.DEV_IMAGE }}
+          tags: ${{ env.DEV_IMAGE }}:${{ github.sha }}
+          cache-from: type=registry,ref=${{ env.DEV_IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.DEV_IMAGE }}:buildcache,mode=max
 
+     # STAGING IMAGE
       - name: Build and push staging image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
           push: true
-          tags: ${{ env.STAGING_IMAGE }}
-          cache-from: type=registry,ref=${{ env.STAGING_IMAGE }}
-          cache-to: type=registry,ref=${{ env.STAGING_IMAGE }}
+          tags: ${{ env.STAGING_IMAGE }}:${{ github.sha }}
+          cache-from: type=registry,ref=${{ env.STAGING_IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.STAGING_IMAGE }}:buildcache,mode=max
 
+        # PROD IMAGE
       - name: Build and push prod image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
           push: true
-          tags: ${{ env.PROD_IMAGE }}
-          cache-from: type=registry,ref=${{ env.PROD_IMAGE }}
-          cache-to: type=registry,ref=${{ env.PROD_IMAGE }}
+          tags: ${{ env.PROD_IMAGE }}:${{ github.sha }}
+          cache-from: type=registry,ref=${{ env.PROD_IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.PROD_IMAGE }}:buildcache,mode=max
 
       - name: Set build vars
         id: set-vars
         run: |
-          echo "dev_image=${{ env.DEV_IMAGE }}" >> $GITHUB_OUTPUT
-          echo "staging_image=${{ env.STAGING_IMAGE }}" >> $GITHUB_OUTPUT
-          echo "prod_image=${{ env.PROD_IMAGE }}" >> $GITHUB_OUTPUT
+          echo "dev_image=${{ env.DEV_IMAGE }}:${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "staging_image=${{ env.STAGING_IMAGE }}:${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "prod_image=${{ env.PROD_IMAGE }}:${{ github.sha }}" >> $GITHUB_OUTPUT
 
   deploy-dev:
     name: Deploy to Development
