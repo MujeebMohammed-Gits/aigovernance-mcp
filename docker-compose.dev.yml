@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   mcp-server:
-    image: ${DEV_IMAGE}   # CI/CD injects this
+    image: ${DEV_IMAGE}
     ports:
       - "8000:8000"
     environment:
