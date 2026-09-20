@@ -10,9 +10,9 @@ on:
 env:
   REGISTRY: docker.io
   IMAGE_NAMESPACE: ${{ secrets.DOCKERHUB_USERNAME }}
-  DEV_IMAGE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/aigovernance-dev
-  STAGING_IMAGE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/aigovernance-staging
-  PROD_IMAGE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/aigovernance-prod
+  DEV_IMAGE_BASE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/aigovernance-dev
+  STAGING_IMAGE_BASE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/aigovernance-staging
+  PROD_IMAGE_BASE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/aigovernance-prod
   PYTHON_VERSION: "3.11"
   PROJECT_ROOT: /
   REQUIREMENTS_FILE: requirements.txt
@@ -43,16 +43,13 @@ jobs:
           pip install -r requirements.txt
 
       - name: Lint with flake8
-        run: |
-          flake8 . --count --select=E9,F6,F7,W501 --show-source --statistics
+        run: flake8 . --count --select=E9,F6,F7,W501 --show-source --statistics
 
       - name: Type check with mypy
-        run: |
-          mypy .
+        run: mypy .
 
       - name: Run unit tests
-        run: |
-          python -m pytest tests/ -v --tb=short
+        run: python -m pytest tests/ -v --tb=short
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -70,10 +67,12 @@ jobs:
     needs: lint-test
     runs-on: ubuntu-latest
     timeout-minutes: 60
+
     outputs:
       dev_image: ${{ steps.set-vars.outputs.dev_image }}
       staging_image: ${{ steps.set-vars.outputs.staging_image }}
       prod_image: ${{ steps.set-vars.outputs.prod_image }}
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -88,45 +87,36 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # DEV IMAGE
       - name: Build and push dev image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
           push: true
-          tags: ${{ env.DEV_IMAGE }}:${{ github.sha }}
-          cache-from: type=registry,ref=${{ env.DEV_IMAGE }}:buildcache
-          cache-to: type=registry,ref=${{ env.DEV_IMAGE }}:buildcache,mode=max
+          tags: ${{ env.DEV_IMAGE_BASE }}:${{ github.sha }}
 
-     # STAGING IMAGE
       - name: Build and push staging image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
           push: true
-          tags: ${{ env.STAGING_IMAGE }}:${{ github.sha }}
-          cache-from: type=registry,ref=${{ env.STAGING_IMAGE }}:buildcache
-          cache-to: type=registry,ref=${{ env.STAGING_IMAGE }}:buildcache,mode=max
+          tags: ${{ env.STAGING_IMAGE_BASE }}:${{ github.sha }}
 
-        # PROD IMAGE
       - name: Build and push prod image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
           push: true
-          tags: ${{ env.PROD_IMAGE }}:${{ github.sha }}
-          cache-from: type=registry,ref=${{ env.PROD_IMAGE }}:buildcache
-          cache-to: type=registry,ref=${{ env.PROD_IMAGE }}:buildcache,mode=max
+          tags: ${{ env.PROD_IMAGE_BASE }}:${{ github.sha }}
 
       - name: Set build vars
         id: set-vars
         run: |
-          echo "dev_image=${{ env.DEV_IMAGE }}:${{ github.sha }}" >> $GITHUB_OUTPUT
-          echo "staging_image=${{ env.STAGING_IMAGE }}:${{ github.sha }}" >> $GITHUB_OUTPUT
-          echo "prod_image=${{ env.PROD_IMAGE }}:${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "dev_image=${{ env.DEV_IMAGE_BASE }}:${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "staging_image=${{ env.STAGING_IMAGE_BASE }}:${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "prod_image=${{ env.PROD_IMAGE_BASE }}:${{ github.sha }}" >> $GITHUB_OUTPUT
 
   deploy-dev:
     name: Deploy to Development
@@ -134,11 +124,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: development
+
     env:
-          DEV_IMAGE: ${{ needs.build.outputs.dev_image }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      DEV_IMAGE: ${{ needs.build.outputs.dev_image }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -148,14 +140,13 @@ jobs:
           curl -fsSL https://get.docker.com -o get-docker.sh
           sudo sh get-docker.sh
           sudo systemctl start docker
-          docker --version
           docker compose version
 
       - name: Deploy to dev environment
         run: |
           docker compose -f docker-compose.dev.yml config
           docker compose -f docker-compose.dev.yml up -d
-        
+
       - name: Inspect dev deployment
         if: always()
         run: |
@@ -169,9 +160,8 @@ jobs:
               echo "Development service is healthy"
               exit 0
             fi
-
-              echo "Waiting for development service..."
-              sleep 2
+            echo "Waiting for development service..."
+            sleep 2
           done
 
           echo "Development service did not become healthy"
@@ -185,11 +175,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: staging
+
     env:
-          STAGING_IMAGE: ${{ needs.build.outputs.staging_image }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      STAGING_IMAGE: ${{ needs.build.outputs.staging_image }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -198,20 +190,35 @@ jobs:
         run: |
           curl -fsSL https://get.docker.com -o get-docker.sh
           sudo sh get-docker.sh
-          docker --version
+          sudo systemctl start docker
           docker compose version
 
       - name: Deploy to staging environment
         run: |
+          docker compose -f docker-compose.staging.yml config
           docker compose -f docker-compose.staging.yml up -d
-        
-      - name: Verify staging deployment
+
+      - name: Inspect staging deployment
+        if: always()
         run: |
-          docker ps --filter "name=aigovernance-staging"
+          docker compose -f docker-compose.staging.yml ps -a
+          docker compose -f docker-compose.staging.yml logs --no-color
 
       - name: Run staging smoke tests
         run: |
-          curl -f http://localhost:8000/health || exit 1
+          for i in {1..30}; do
+            if curl --fail --silent http://localhost:8000/health; then
+              echo "Staging service is healthy"
+              exit 0
+            fi
+            echo "Waiting for staging service..."
+            sleep 2
+          done
+
+          echo "Staging service did not become healthy"
+          docker compose -f docker-compose.staging.yml ps -a
+          docker compose -f docker-compose.staging.yml logs --no-color
+          exit 1
 
   deploy-prod:
     name: Deploy to Production
@@ -223,10 +230,10 @@ jobs:
       url: https://aigovernance.example.com
 
     env:
-          PROD_IMAGE: ${{ needs.deploy-staging.outputs.prod_image }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      PROD_IMAGE: ${{ needs.deploy-staging.outputs.prod_image }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
 
     steps:
       - name: Check out repository
@@ -236,20 +243,22 @@ jobs:
         run: |
           curl -fsSL https://get.docker.com -o get-docker.sh
           sudo sh get-docker.sh
-          docker --version
+          sudo systemctl start docker
           docker compose version
 
       - name: Deploy to production environment
         run: |
+          docker compose -f docker-compose.prod.yml config
           docker compose -f docker-compose.prod.yml up -d
 
-      - name: Verify production deployment
+      - name: Inspect production deployment
+        if: always()
         run: |
-          docker ps --filter "name=aigovernance-prod"
+          docker compose -f docker-compose.prod.yml ps -a
+          docker compose -f docker-compose.prod.yml logs --no-color
 
       - name: Run post-deployment health checks
-        run: |
-          curl -f https://aigovernance.example.com/health || exit 1
+        run: curl -f https://aigovernance.example.com/health || exit 1
 
       - name: Notify deployment success
         uses: slackapi/slack-github-action@v1.25.0
@@ -276,10 +285,19 @@ jobs:
 
   rolling-deploy:
     name: Rolling Deployment Strategy
-    needs: deploy-prod
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 45
     if: github.ref == 'refs/heads/main'
+
+    env:
+      DEV_IMAGE: ${{ needs.build.outputs.dev_image }}
+      STAGING_IMAGE: ${{ needs.build.outputs.staging_image }}
+      PROD_IMAGE: ${{ needs.build.outputs.prod_image }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -288,25 +306,56 @@ jobs:
         run: |
           curl -fsSL https://get.docker.com -o get-docker.sh
           sudo sh get-docker.sh
-          docker --version
+          sudo systemctl start docker
           docker compose version
 
-      - name: Execute rolling deployment
+      - name: Rolling Deploy - Development
         run: |
-          echo "Starting rolling deployment sequence..."
-          echo "1. Deploy to Development"
+          echo "Deploying to Development..."
+          docker compose -f docker-compose.dev.yml config
           docker compose -f docker-compose.dev.yml up -d
-          echo "2. Wait for health checks"
-          sleep 60
-          echo "3. Deploy to Staging"
+          for i in {1..30}; do
+            if curl --fail --silent http://localhost:8000/health; then
+              echo "Development service is healthy"
+              break
+            fi
+              echo "Waiting for development service..."
+              sleep 2
+          done
+          docker compose -f docker-compose.dev.yml ps -a
+          docker compose -f docker-compose.dev.yml logs --no-color
+
+      - name: Rolling Deploy - Staging
+        run: |
+          echo "Deploying to Staging..."
+          docker compose -f docker-compose.staging.yml config
           docker compose -f docker-compose.staging.yml up -d
-          echo "4. Wait for staging validation"
-          sleep 120
-          echo "5. Deploy to Production"
+          for i in {1..30}; do
+            if curl --fail --silent http://localhost:8000/health; then
+              echo "Staging service is healthy"
+              break
+            fi
+              echo "Waiting for staging service..."
+              sleep 2
+          done
+          docker compose -f docker-compose.staging.yml ps -a
+          docker compose -f docker-compose.staging.yml logs --no-color
+
+      - name: Rolling Deploy - Production
+        run: |
+          echo "Deploying to Production..."
+          docker compose -f docker-compose.prod.yml config
           docker compose -f docker-compose.prod.yml up -d
-          echo "6. Monitor production health"
-          sleep 180
-          echo "7. Rolling deployment complete"
+          for i in {1..30}; do
+            if curl --fail --silent https://aigovernance.example.com/health; then
+              echo "Production service is healthy"
+              break
+            fi
+              echo "Waiting for production service..."
+              sleep 2
+          done
+          docker compose -f docker-compose.prod.yml ps -a
+          docker compose -f docker-compose.prod.yml logs --no-color
 
       - name: Send Slack notification
         uses: slackapi/slack-github-action@v1.25.0
@@ -326,10 +375,14 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Install deployment tools
+      - name: Install Docker & Compose
         run: |
-          pip install docker-compose
-          
+          curl -fsSL https://get.docker.com -o get-docker.sh
+          sudo sh get-docker.sh
+          sudo systemctl start docker
+          docker --version
+          docker compose version
+
       - name: Execute rollback on failure
         run: |
           echo "⚠️ Deployment failure detected - initiating rollback..."
