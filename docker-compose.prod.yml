@@ -2,7 +2,7 @@ services:
   mcp-server:
     image: ${PROD_IMAGE:?PROD_IMAGE must be set}
     ports:
-      - "80:8000"
+      - "8000:8000"
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
@@ -31,7 +31,7 @@ services:
       - "--providers.docker=true"
       - "--entrypoints.Web.address=:80"
     ports:
-      - "80:80"
+      - "8080:80"
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
     restart: unless-stopped
