@@ -1,8 +1,6 @@
-version: '3.8'
-
 services:
   mcp-server:
-    image: ${PROD_IMAGE}
+    image: ${PROD_IMAGE:?PROD_IMAGE must be set}
     ports:
       - "80:8000"
     environment:
@@ -14,13 +12,16 @@ services:
       HOST: "0.0.0.0"
       PORT: "8000"
       ALLOWED_HOSTS: "aigovernance.example.com,www.aigovernance.example.com"
-    command: uvicorn server:app --host 0.0.0.0 --port 8000
+    command: >
+      uvicorn server:app
+      --host 0.0.0.0
+      --port 8000
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 6
       start_period: 40s
 
   traefik:

@@ -1,8 +1,6 @@
-version: '3.8'
-
 services:
   mcp-server:
-    image: ${DEV_IMAGE}
+    image: ${DEV_IMAGE:?DEV_IMAGE must be set}
     ports:
       - "8000:8000"
     environment:

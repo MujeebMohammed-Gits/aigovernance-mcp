@@ -126,14 +126,14 @@ jobs:
     environment: development
 
     env:
-      DEV_IMAGE: ${{ needs.build.outputs.dev_image }}
+      DEV_IMAGE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/aigovernance-dev:${{ github.sha }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+       uses: actions/checkout@v4
 
       - name: Install Docker Engine & Compose
         run: |
@@ -144,6 +144,12 @@ jobs:
 
       - name: Deploy to dev environment
         run: |
+          test -n "$DEV_IMAGE" || {
+            echo "DEV_IMAGE is empty"
+            exit 1
+          }
+
+          echo "Deploying image: $DEV_IMAGE"
           docker compose -f docker-compose.dev.yml config
           docker compose -f docker-compose.dev.yml up -d
 
@@ -177,7 +183,7 @@ jobs:
     environment: staging
 
     env:
-      STAGING_IMAGE: ${{ needs.build.outputs.staging_image }}
+      STAGING_IMAGE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/aigovernance-staging:${{ github.sha }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
@@ -195,6 +201,12 @@ jobs:
 
       - name: Deploy to staging environment
         run: |
+          test -n "$STAGING_IMAGE" || {
+            echo "STAGING_IMAGE is empty"
+            exit 1
+          }
+
+          echo "Deploying image: $STAGING_IMAGE"
           docker compose -f docker-compose.staging.yml config
           docker compose -f docker-compose.staging.yml up -d
 
@@ -204,7 +216,7 @@ jobs:
           docker compose -f docker-compose.staging.yml ps -a
           docker compose -f docker-compose.staging.yml logs --no-color
 
-      - name: Run staging smoke tests
+      - name: Wait for staging service
         run: |
           for i in {1..30}; do
             if curl --fail --silent http://localhost:8000/health; then
@@ -222,7 +234,7 @@ jobs:
 
   deploy-prod:
     name: Deploy to Production
-    needs: deploy-staging
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment:
@@ -230,7 +242,7 @@ jobs:
       url: https://aigovernance.example.com
 
     env:
-      PROD_IMAGE: ${{ needs.deploy-staging.outputs.prod_image }}
+      PROD_IMAGE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/aigovernance-prod:${{ github.sha }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
@@ -248,6 +260,12 @@ jobs:
 
       - name: Deploy to production environment
         run: |
+          test -n "$PROD_IMAGE" || {
+            echo "PROD_IMAGE is empty"
+            exit 1
+          }
+
+          echo "Deploying image: $PROD_IMAGE"
           docker compose -f docker-compose.prod.yml config
           docker compose -f docker-compose.prod.yml up -d
 
@@ -267,6 +285,7 @@ jobs:
           slack-message: "✅ Production deployment successful! SHA: ${{ github.sha }}"
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+
 
   promote-environments:
     name: Promote Environments
