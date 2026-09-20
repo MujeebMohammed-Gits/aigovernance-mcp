@@ -13,7 +13,7 @@ services:
       PORT: "8000"
       ALLOWED_HOSTS: "aigovernance.example.com,www.aigovernance.example.com"
     command: >
-      uvicorn server:app
+      uvicorn internal_llm_api.server:app
       --host 0.0.0.0
       --port 8000
     restart: unless-stopped
