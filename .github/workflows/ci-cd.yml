@@ -134,6 +134,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: development
+    env:
+          DEV_IMAGE: ${{ needs.build.outputs.dev_image }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -150,12 +155,7 @@ jobs:
         run: |
           docker compose -f docker-compose.dev.yml config
           docker compose -f docker-compose.dev.yml up -d
-        env:
-          DEV_IMAGE: ${{ needs.build.outputs.dev_image }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-
+        
       - name: Inspect dev deployment
         if: always()
         run: |
@@ -167,11 +167,11 @@ jobs:
           for i in {1..30}; do
             if curl --fail --silent http://localhost:8000/health; then
               echo "Development service is healthy"
-            exit 0
-          fi
+              exit 0
+            fi
 
-            echo "Waiting for development service..."
-            sleep 2
+              echo "Waiting for development service..."
+              sleep 2
           done
 
           echo "Development service did not become healthy"
@@ -185,6 +185,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: staging
+    env:
+          STAGING_IMAGE: ${{ needs.build.outputs.staging_image }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -199,11 +204,7 @@ jobs:
       - name: Deploy to staging environment
         run: |
           docker compose -f docker-compose.staging.yml up -d
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-
+        
       - name: Verify staging deployment
         run: |
           docker ps --filter "name=aigovernance-staging"
@@ -220,6 +221,13 @@ jobs:
     environment:
       name: "production"
       url: https://aigovernance.example.com
+
+    env:
+          PROD_IMAGE: ${{ needs.deploy-staging.outputs.prod_image }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -234,10 +242,6 @@ jobs:
       - name: Deploy to production environment
         run: |
           docker compose -f docker-compose.prod.yml up -d
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
 
       - name: Verify production deployment
         run: |
