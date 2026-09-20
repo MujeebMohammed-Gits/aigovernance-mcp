@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, validator, root_validator
+from pydantic import BaseModel, field_validator, model_validator
 import uvicorn
 
 # ============================================================
@@ -47,21 +47,21 @@ _rate_limit_state: Dict[str, Dict] = {}
 _rate_limit_lock = threading.Lock()
 
 # ============================================================
-# Pydantic Models
+# Pydantic Models (Pydantic v2)
 # ============================================================
 
 class Message(BaseModel):
     role: str
     content: str
 
-    @validator("role")
+    @field_validator("role")
     def validate_role(cls, v):
         allowed = ["user", "assistant", "system"]
         if v not in allowed:
             raise ValueError(f"Invalid role: {v}. Must be one of: {allowed}")
         return v
 
-    @validator("content")
+    @field_validator("content")
     def validate_content(cls, v):
         if not v.strip():
             raise ValueError("Message content cannot be empty")
@@ -77,7 +77,7 @@ class LLMRequest(BaseModel):
     messages: List[Message]
     metadata: Optional[dict] = None
 
-    @validator("agent_id")
+    @field_validator("agent_id")
     def validate_agent_id(cls, v):
         if not v.strip():
             raise ValueError("Agent ID cannot be empty")
@@ -85,20 +85,20 @@ class LLMRequest(BaseModel):
             raise ValueError("Agent ID too long (max 100 chars)")
         return v.strip()
 
-    @validator("model")
+    @field_validator("model")
     def validate_model(cls, v):
         if v not in _ALLOWED_MODELS:
             raise ValueError(f"Model '{v}' not allowed. Allowed: {', '.join(_ALLOWED_MODELS)}")
         return v.strip()
 
-    @validator("purpose")
+    @field_validator("purpose")
     def validate_purpose(cls, v):
         valid = ["analysis", "generation", "classification", "summarization", "translation", "custom"]
         if v not in valid:
             raise ValueError(f"Invalid purpose: {v}. Must be one of: {valid}")
         return v.strip()
 
-    @validator("messages")
+    @field_validator("messages")
     def validate_messages(cls, v):
         if not v:
             raise ValueError("At least one message required")
@@ -106,15 +106,15 @@ class LLMRequest(BaseModel):
             raise ValueError("Too many messages (max 100)")
         return v
 
-    @root_validator
-    def validate_metadata(cls, values):
-        metadata = values.get("metadata")
+    @model_validator(mode="after")
+    def validate_metadata(self):
+        metadata = self.metadata
         if metadata:
             if not isinstance(metadata, dict):
                 raise ValueError("Metadata must be a dictionary")
             if len(str(metadata)) > 50000:
                 raise ValueError("Metadata too large (max 50KB)")
-        return values
+        return self
 
 
 class LLMResponse(BaseModel):
@@ -254,7 +254,7 @@ def internal_llm(request: LLMRequest, background_tasks: BackgroundTasks):
 
 if __name__ == "__main__":
     uvicorn.run(
-        "server:app",
+        "internal_llm_api.server:app",
         host="0.0.0.0",
         port=8000,
         log_level="info",
