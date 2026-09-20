@@ -11,7 +11,7 @@ services:
       LOG_LEVEL: "WARNING"
       HOST: "0.0.0.0"
       PORT: "8000"
-      ALLOWED_HOSTS: "aigovernance.example.com,www.aigovernance.example.com"
+      ALLOWED_HOSTS: "aigovernancetower.com,www.aigovernancetower.com"
     command: >
       uvicorn internal_llm_api.server:app
       --host 0.0.0.0
