@@ -187,6 +187,7 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
 
     steps:
       - name: Check out repository
@@ -208,7 +209,7 @@ jobs:
 
           echo "Deploying image: $STAGING_IMAGE"
           docker compose -f docker-compose.staging.yml config
-          docker compose -f docker-compose.staging.yml up -d
+          docker compose -f docker-compose.staging.yml up -d --pull always
 
       - name: Inspect staging deployment
         if: always()
