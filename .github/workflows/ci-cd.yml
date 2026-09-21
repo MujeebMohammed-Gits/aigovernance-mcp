@@ -316,27 +316,17 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    if: always()   # <-- allow job to start, but we will gate inside steps
+    if: github.ref == 'refs/heads/main'
 
     env:
-      DEV_IMAGE: ${{ needs.build.outputs.dev_image }}
-      STAGING_IMAGE: ${{ needs.build.outputs.staging_image }}
-      PROD_IMAGE: ${{ needs.build.outputs.prod_image }}
+      DEV_IMAGE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/aigovernance-dev:${{ github.sha }}
+      STAGING_IMAGE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/aigovernance-staging:${{ github.sha }}
+      PROD_IMAGE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/aigovernance-prod:${{ github.sha }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
 
     steps:
-      - name: Gate Rolling Deploy
-        run: |
-          if [ -z "${DEV_IMAGE}" ] || [ -z "${STAGING_IMAGE}" ] || [ -z "${PROD_IMAGE}" ]; then
-            echo "🔄 Rolling Deploy skipped: build job did not run in this workflow execution or outputs are empty."
-            echo "DEV_IMAGE='${DEV_IMAGE}'"
-            echo "STAGING_IMAGE='${STAGING_IMAGE}'"
-            echo "PROD_IMAGE='${PROD_IMAGE}'"
-            exit 0
-          fi
-          
       - name: Check out repository
         uses: actions/checkout@v4
 
@@ -357,8 +347,8 @@ jobs:
               echo "Development service is healthy"
               break
             fi
-              echo "Waiting for development service..."
-              sleep 2
+            echo "Waiting for development service..."
+            sleep 2
           done
           docker compose -f docker-compose.dev.yml ps -a
           docker compose -f docker-compose.dev.yml logs --no-color
@@ -373,8 +363,8 @@ jobs:
               echo "Staging service is healthy"
               break
             fi
-              echo "Waiting for staging service..."
-              sleep 2
+            echo "Waiting for staging service..."
+            sleep 2
           done
           docker compose -f docker-compose.staging.yml ps -a
           docker compose -f docker-compose.staging.yml logs --no-color
@@ -389,8 +379,8 @@ jobs:
               echo "Production service is healthy"
               break
             fi
-              echo "Waiting for production service..."
-              sleep 2
+            echo "Waiting for production service..."
+            sleep 2
           done
           docker compose -f docker-compose.prod.yml ps -a
           docker compose -f docker-compose.prod.yml logs --no-color
