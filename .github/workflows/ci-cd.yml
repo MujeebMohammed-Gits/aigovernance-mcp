@@ -247,7 +247,7 @@ jobs:
     timeout-minutes: 60
     environment:
       name: "production"
-      url: https://aigovernancetower.com
+      url: https://aigovernancemcptower.com
 
     env:
       PROD_IMAGE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/aigovernance-prod:${{ github.sha }}
@@ -284,7 +284,7 @@ jobs:
           docker compose -f docker-compose.prod.yml logs --no-color
 
       - name: Run post-deployment health checks
-        run: curl -f https://aigovernancetower.com/health || exit 1
+        run: curl -f https://aigovernancemcptower.com/health || exit 1
 
       - name: Notify deployment success
         uses: slackapi/slack-github-action@v1.25.0
@@ -374,7 +374,7 @@ jobs:
           docker compose -f docker-compose.prod.yml config
           docker compose -f docker-compose.prod.yml up -d
           for i in {1..30}; do
-            if curl --fail --silent https://aigovernancetower.com/health; then
+            if curl --fail --silent https://aigovernancemcptower.com/health; then
               echo "Production service is healthy"
               break
             fi
