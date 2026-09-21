@@ -315,7 +315,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && needs.build.result == 'success'
 
     env:
       DEV_IMAGE: ${{ needs.build.outputs.dev_image }}
