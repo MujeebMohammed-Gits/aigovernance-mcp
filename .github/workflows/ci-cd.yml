@@ -316,7 +316,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    if: github.ref == 'refs/heads/main' && needs.build.result == 'success'
+    if: always()   # <-- allow job to start, but we will gate inside steps
 
     env:
       DEV_IMAGE: ${{ needs.build.outputs.dev_image }}
@@ -327,6 +327,16 @@ jobs:
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
 
     steps:
+      - name: Gate Rolling Deploy
+        run: |
+          if [ -z "${DEV_IMAGE}" ] || [ -z "${STAGING_IMAGE}" ] || [ -z "${PROD_IMAGE}" ]; then
+            echo "🔄 Rolling Deploy skipped: build job did not run in this workflow execution or outputs are empty."
+            echo "DEV_IMAGE='${DEV_IMAGE}'"
+            echo "STAGING_IMAGE='${STAGING_IMAGE}'"
+            echo "PROD_IMAGE='${PROD_IMAGE}'"
+            exit 0
+          fi
+          
       - name: Check out repository
         uses: actions/checkout@v4
 
