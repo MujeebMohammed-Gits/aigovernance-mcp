@@ -4,7 +4,6 @@ Internal LLM API - Production Hardened
 FastAPI server for internal LLM integration with validation, security, and health reporting
 """
 
-import json
 import os
 import threading
 import logging
@@ -12,9 +11,9 @@ import time
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, validator, root_validator
 import uvicorn
 
 # ============================================================
@@ -46,22 +45,29 @@ _ALLOWED_MODELS = ["gpt-4", "gpt-3.5-turbo", "claude-2", "gemini-pro", "internal
 _rate_limit_state: Dict[str, Dict] = {}
 _rate_limit_lock = threading.Lock()
 
+# CORS / security config from environment
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "")
+if ALLOWED_ORIGINS:
+    _cors_origins = [o.strip() for o in ALLOWED_ORIGINS.split(",") if o.strip()]
+else:
+    _cors_origins = ["*"]  # you can tighten this in prod
+
 # ============================================================
-# Pydantic Models (Pydantic v2)
+# Pydantic Models
 # ============================================================
 
 class Message(BaseModel):
     role: str
     content: str
 
-    @field_validator("role")
+    @validator("role")
     def validate_role(cls, v):
         allowed = ["user", "assistant", "system"]
         if v not in allowed:
             raise ValueError(f"Invalid role: {v}. Must be one of: {allowed}")
         return v
 
-    @field_validator("content")
+    @validator("content")
     def validate_content(cls, v):
         if not v.strip():
             raise ValueError("Message content cannot be empty")
@@ -77,7 +83,7 @@ class LLMRequest(BaseModel):
     messages: List[Message]
     metadata: Optional[dict] = None
 
-    @field_validator("agent_id")
+    @validator("agent_id")
     def validate_agent_id(cls, v):
         if not v.strip():
             raise ValueError("Agent ID cannot be empty")
@@ -85,20 +91,20 @@ class LLMRequest(BaseModel):
             raise ValueError("Agent ID too long (max 100 chars)")
         return v.strip()
 
-    @field_validator("model")
+    @validator("model")
     def validate_model(cls, v):
         if v not in _ALLOWED_MODELS:
             raise ValueError(f"Model '{v}' not allowed. Allowed: {', '.join(_ALLOWED_MODELS)}")
         return v.strip()
 
-    @field_validator("purpose")
+    @validator("purpose")
     def validate_purpose(cls, v):
         valid = ["analysis", "generation", "classification", "summarization", "translation", "custom"]
         if v not in valid:
             raise ValueError(f"Invalid purpose: {v}. Must be one of: {valid}")
         return v.strip()
 
-    @field_validator("messages")
+    @validator("messages")
     def validate_messages(cls, v):
         if not v:
             raise ValueError("At least one message required")
@@ -106,15 +112,15 @@ class LLMRequest(BaseModel):
             raise ValueError("Too many messages (max 100)")
         return v
 
-    @model_validator(mode="after")
-    def validate_metadata(self):
-        metadata = self.metadata
+    @root_validator
+    def validate_metadata(cls, values):
+        metadata = values.get("metadata")
         if metadata:
             if not isinstance(metadata, dict):
                 raise ValueError("Metadata must be a dictionary")
             if len(str(metadata)) > 50000:
                 raise ValueError("Metadata too large (max 50KB)")
-        return self
+        return values
 
 
 class LLMResponse(BaseModel):
@@ -141,9 +147,9 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
-    allow_methods=["POST"],
+    allow_methods=["POST", "GET"],
     allow_headers=["Content-Type", "Authorization"],
 )
 
@@ -163,7 +169,7 @@ def _update_health_stats(success: bool, latency_ms: int):
         count = _api_health["requests_processed"]
         prev_avg = _api_health["avg_latency_ms"]
 
-        _api_health["avg_latency_ms"] = (prev_avg * (count - 1) + latency_ms) / count
+        _api_health["avg_latency_ms"] = int((prev_avg * (count - 1) + latency_ms) / count)
         _api_health["last_request_time"] = datetime.now(timezone.utc).isoformat()
 
 def _check_rate_limit(agent_id: str) -> bool:
@@ -174,6 +180,7 @@ def _check_rate_limit(agent_id: str) -> bool:
 
         state = _rate_limit_state[agent_id]
 
+        # simple 100 requests / minute per agent
         if now - state["first_request"] > 60:
             state["count"] = 0
             state["first_request"] = now
@@ -185,6 +192,15 @@ def _check_rate_limit(agent_id: str) -> bool:
 # ============================================================
 # API Endpoints
 # ============================================================
+
+@app.get("/")
+async def root():
+    return {
+        "service": "Internal LLM API",
+        "status": "ok",
+        "docs": "/docs",
+        "health": "/health",
+    }
 
 @app.get("/health")
 async def health_check():
@@ -198,10 +214,11 @@ async def health_check():
     return health
 
 @app.post("/internal-llm", response_model=LLMResponse)
-def internal_llm(request: LLMRequest, background_tasks: BackgroundTasks):
+def internal_llm(request: LLMRequest):
     start_time = time.time()
 
     if not _check_rate_limit(request.agent_id):
+        logger.warning(f"Rate limit exceeded for agent {request.agent_id}")
         raise HTTPException(
             status_code=429,
             detail=f"Rate limit exceeded for agent {request.agent_id}. Max 100 requests/minute."
@@ -244,19 +261,22 @@ def internal_llm(request: LLMRequest, background_tasks: BackgroundTasks):
         return response
 
     except Exception as e:
-        _update_health_stats(False, _calculate_processing_time(start_time))
+        latency = _calculate_processing_time(start_time)
+        _update_health_stats(False, latency)
         logger.error(f"Internal LLM processing error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal LLM processing failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal LLM processing failed")
 
 # ============================================================
 # Server Startup
 # ============================================================
 
 if __name__ == "__main__":
+    host = os.getenv("HOST", "0.0.0.0")
+    port = int(os.getenv("PORT", "8000"))
     uvicorn.run(
         "internal_llm_api.server:app",
-        host="0.0.0.0",
-        port=8000,
+        host=host,
+        port=port,
         log_level="info",
         access_log=True,
         reload=False
